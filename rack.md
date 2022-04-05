@@ -84,7 +84,7 @@ Rack用一个环境参数调用Rack应用程序，他是一个hash的实例
 require 'rack'
 require 'webrick'
 def pp(env)
- env.map {|k, v|  "#{k}=>#{v}"}.sort.join("<br/>")
+ env.map {|k, v|  "#{k}=>#{v}"}.sort.join("\n")
 end
 
 Rack::Handler::WEBrick.run lambda {|env| [200, {}, [pp(env)]]}, :Port => 3000
@@ -134,3 +134,102 @@ rack.version=>[1, 3]
 我们可以看到env的key可以分为两类，一个是大写的类CGI的头，还有一个是rack特定的环境
 ## Rack相关变量
 Rack要求环境中必须包含rack相关的一些变量，这些变量都是rack.xxx的形式。
+```ruby
+REQUEST_METHOD             http请求方法
+PATH_INFO                  路径
+QUERY_STRING               ?后的部分
+```
+
+## Request
+Rack::Request为存取Rack环境提供了方便的接口
+request = Rack::Request.new(env)
+
+## Response
+Response提供了对响应的状态,HTTP头和内容处理的方便接口
+Response提供了两种方法来生产成响应体:
+- 直接设置response.body,此时你必须自己设置响应头中Content-Length的值
+- response.write增量写入内容，自动填充Content-Length的值
+要注意的是你不应该混用这两种方法，浏览器需要用Content-Length头信息决定从服务器端读多少数据，因此这是必须的。不管用什么方法，最后使用response.finish完成。除了一些必要的检查工作外，finish将装配出符合Rack规范的一个数组-------这三个数组有三个成员: 状态码，响应头, 响应体，也就是我们原来手工返回的那个数组。
+### response.body
+```ruby
+#!/usr/bin/env ruby
+require 'rack'
+require 'webrick'
+rack_app = lambda {|env|  
+  request = Rack::Request.new(env)
+  response = Rack::Response.new
+  body = "============header===============\n"
+  if request.path_info == '/hello'
+    body << 'say hello'
+    client = request['client']
+    body <<  "from #{client}" if client
+  else
+    body << "you must provide some info"
+  end
+  body << "\n============footer==============="
+  response.body = [body]
+  response.headers['Content-Length'] = body.bytesize
+  response.finish
+}
+
+Rack::Handler::WEBrick.run rack_app, :Port => 3000
+```
+
+如果运行上述程序，你会得到入下错误:
+```ruby
+Internal Server Error
+undefined method `split' for 77:Integer
+```
+原因在于`response.headers['Content-Length']`的值必须是`string`,改为
+```ruby
+response.headers['Content-Length'] = body.bytesize.to_s
+```
+
+### response.write
+```ruby
+#!/usr/bin/env ruby
+require 'rack'
+require 'webrick'
+rack_app = lambda {|env|  
+  request = Rack::Request.new(env)
+  response = Rack::Response.new
+  response.write("============header===============\n")
+  if request.path_info == '/hello'
+    response.write('say hello')
+    client = request['client']
+    response.write("from #{client}") if client
+  else
+    response.write("you must provide some info")
+  end
+  response.write("\n============footer===============")
+  response.finish
+}
+
+Rack::Handler::WEBrick.run rack_app, :Port => 3000
+```
+### 状态码
+
+我们可以直接存取Response对象来改变状态码。如果没有任何设置,那么状态码为200。
+response.status = 200
+Response提供一个重定向的方法#redirect
+```ruby
+#!/usr/bin/env ruby
+require 'rack'
+require 'webrick'
+rack_app = lambda {|env|  
+  request = Rack::Request.new(env)
+  response = Rack::Response.new
+  if request.path_info == '/redirect'
+    response.redirect('http://google.com')
+  else
+    response.write("here")
+  end
+  response.finish
+}
+
+Rack::Handler::WEBrick.run rack_app, :Port => 3000
+```
+### 响应头
+response.headers是一个hash，例如response.headers['Content-type'] = 'text/plain'
+修改上面的代码，让它直接返回普通文本而不是html给浏览器
+
