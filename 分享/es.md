@@ -956,6 +956,144 @@ GET blog/_search
 
 在 dis_max query 中，还有一个参数 tie_breaker（取值在0～1），在 dis_max query 中，是完全不考虑其他 query 的分数，只是将最佳匹配的字段的评分返回。但是，有的时候，我们又不得不考虑一下其他 query 的分数，此时，可以通过 tie_breaker 来优化 dis_max query。tie_breaker 会将其他 query 的分数，乘以 tie_breaker，然后和分数最高的 query 进行一个综合计算。
 
+### 全文检索
+
+#### match query
+match query 会对查询语句进行分词，分词后，如果查询语句中的任何一个词项被匹配，则文档就会被索引到。
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": "美术计算机"
+    }
+  }
+}
+```
+这个查询首先会对 **美术计算机** 进行分词，分词之后，再去查询，只要文档中包含一个分词结果，就回返回文档。换句话说，默认词项之间是 OR 的关系，如果想要修改，也可以改为 AND。
+```ruby
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": {
+        "query": "美术计算机",
+        "operator": "and"
+      }
+    }
+  }
+}
+```
+此时就回要求文档中必须同时包含 **美术** 和 **计算机** 两个词。
+
+#### match_phrase query
+match_phrase query 也会对查询的关键字进行分词，但是它分词后有两个特点：
+
+- 分词后的词项顺序必须和文档中词项的顺序一致
+- 所有的词都必须出现在文档中
+```ruby
+GET books/_search
+{
+  "query": {
+    "match_phrase": {
+        "name": {
+          "query": "十一五计算机",
+          "slop": 7
+        }
+    }
+  }
+}
+```
+**query** 是查询的关键字，会被分词器进行分解，分解之后去倒排索引中进行匹配。
+
+**slop** 是指关键字之间的最小距离，但是注意不是关键之间间隔的字数。文档中的字段被分词器解析之后，解析出来的词项都包含一个 position 字段表示词项的位置，查询短语分词之后 的 position 之间的间隔要满足 **slop** 的要求。
+
+#### match_phrase_prefix query
+这个类似于 match_phrase query，只不过这里多了一个通配符，match_phrase_prefix 支持最后一个词项的前缀匹配，但是由于这种匹配方式效率较低，因此大家作为了解即可。
+```ruby
+GET books/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "name": "计"
+    }
+  }
+}
+```
+这个查询过程，会自动进行单词匹配，会自动查找以计开始的单词，默认是 50 个，可以自己控制：
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "name": {
+        "query": "计",
+        "max_expansions": 3
+      }
+    }
+  }
+}
+```
+match_phrase_prefix 是针对分片级别的查询，假设 max_expansions 为 1，可能返回多个文档，但是只有一个词，这是我们预期的结果。有的时候实际返回结果和我们预期结果并不一致，原因在于这个查询是分片级别的，不同的分片确实只返回了一个词，但是结果可能来自不同的分片，所以最终会看到多个词。
+#### multi_match query
+match 查询的升级版，可以指定多个查询域：
+```ruby
+GET books/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "java",
+      "fields": ["name","info"]
+    }
+  }
+}
+```
+这种查询方式还可以指定字段的权重：
+```ruby
+GET books/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "阳光",
+      "fields": ["name^4","info"]
+    }
+  }
+}
+```
+这个表示关键字出现在 name 中的权重是出现在 info 中权重的 4 倍。
+
+#### query_string query
+query_string 是一种紧密结合 Lucene 的查询方式，在一个查询语句中可以用到 Lucene 的一些查询语法：
+```ruby
+GET books/_search
+{
+  "query": {
+    "query_string": {
+      "default_field": "name",
+      "query": "(十一五) AND (计算机)"
+    }
+  }
+}
+
+```
+#### simple_query_string
+这个是 query_string 的升级，可以直接使用 +、|、- 代替 AND、OR、NOT 等。
+```ruby
+GET books/_search
+{
+  "query": {
+    "simple_query_string": {
+      "fields": ["name"],
+      "query": "(十一五) + (计算机)"
+    }
+  }
+}
+```
+查询结果和 query_string。
+
+
 ### 多表联合查询
 关系型数据库中有表的关联关系，在 es 中，我们也有类似的需求，例如订单表和商品表，在 es 中，这样的一对多一般来说有两种方式：
 
