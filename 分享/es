@@ -1,0 +1,1920 @@
+## 一些概念
+### 集群（Cluster）
+Elasticsearch 集群由一个或多个节点组成，可通过其集群名称进行标识。通常这个 Cluster 的名字是可以在 Elasticsearch 里的配置文件中设置的。在默认的情况下，如我们的 Elasticsearch 已经开始运行，那么它会自动生成一个叫做 “elasticsearch” 的集群。我们可以在 config/elasticsearch.yml 里定制我们的集群的名字
+
+![image](https://user-images.githubusercontent.com/26034217/176141087-01fcb9a9-594b-4454-9455-72cbdaccf172.png)
+
+在集群中，节点的状态有三种：绿色、黄色、红色：
+
+- 绿色：节点运行状态为健康状态。所有的主分片、副本分片都可以正常工作。
+- 黄色：表示节点的运行状态为警告状态，所有的主分片目前都可以直接运行，但是至少有一个副本分片是不能正常工作的。
+- 红色：表示集群无法正常工作。
+
+### 节点（node）
+集群中的一个服务器就是一个节点，节点中会存储数据，同时参与集群的索引以及搜索功能。一个节点想要加入一个集群，只需要配置一下集群名称即可。默认情况下，如果我们启动了多个节点，多个节点还能够互相发现彼此，那么它们会自动组成一个集群，这是 es 默认提供的，但是这种方式并不可靠，有可能会发生脑裂现象。所以在实际使用中，建议一定手动配置一下集群信息。
+
+根据 node 的作用，可以分为如下的几种：
+- master-eligible：可以作为主 node。一旦成为主 node，它可以管理整个 cluster 的设置及变化：创建，更新，删除 index；添加或删除 node；为 node 分配 shard 及应用的集群设置等。master 节点角色通常不是非常占用资源，并且可以共同位于在较小集群中运行其他角色的节点上。
+- data：数据 node
+- ingest: 数据接入（比如 pipepline)
+- machine learning (Gold/Platinum License)
+- coordinating node：严格来说，这个不是一个种类的节点。它甚至可以是上面的任何一种节点。这种节点通常是接受客户端的 HTTP 请求的。针对大的集群而言，通常的部署时使用一些专用的节点来接受客户端的请求。这样的节点可以不配置上面的任何角色，也就是它既不是 master，也不 data，也不是 ingest，也不是 machine learning。
+
+### 索引（Index）
+索引可以从两方面来理解：
+- 名词： 具有相似特征文档的集合。
+- 动词： 索引数据以及对数据进行索引操作。
+
+### 类型（Type）
+类型是索引上的逻辑分类或者分区。在 es6 之前，一个索引中可以有多个类型，从 es7 开始，一个索引中，只能有一个类型。在 es6.x 中，依然保持了兼容，依然支持单 index 多个 type 结构，但是已经不建议这么使用。
+
+### 文档（Document）
+一个可以被索引的数据单元。例如一个用户的文档、一个产品的文档等等。文档都是 JSON 格式的。
+
+### 分片（Shards）
+索引都是存储在节点上的，但是受限于节点的空间大小以及数据处理能力，单个节点的处理效果可能不理想，此时我们可以对索引进行分片。当我们创建一个索引的时候，就需要指定分片的数量。每个分片本身也是一个功能完善并且独立的索引。
+
+默认情况下，一个索引会自动创建 1 个分片，并且为每一个分片创建一个副本。
+
+查看分片的数据信息
+```ruby
+GET _cat/shards/twitter?v
+```
+
+### 副本（Replicas）
+副本也就是备份，是对主分片的一个备份。
+
+### Settings
+集群中对索引的定义信息，例如索引的分片数、副本数等等。
+
+### Mapping
+Mapping 保存了定义索引字段的存储类型、分词方式、是否存储等信息。
+
+### Analyzer
+字段分词方式的定义。https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-params.html
+
+#### 内置分词器
+ElasticSearch 核心功能就是数据检索，首先通过索引将文档写入 es。查询分析则主要分为两个步骤：
+- 词条化(tokenizer)：分词器将输入的文本转为一个一个的词条流。
+- 过滤(filter)：比如停用词过滤器会从词条中去除不相干的词条（的，嗯，啊，呢）；另外还有同义词过滤器、小写过滤器等。
+
+还可以添加 character filters（过滤一些html标签等）
+character filters -> tokenizer -> token filters
+
+内置分词器：
+![image](https://user-images.githubusercontent.com/26034217/176368213-3522611a-9eea-4d0a-82cf-b8426f198924.png)
+
+#### 中文分词器
+在 Es 中，使用较多的中文分词器是 elasticsearch-analysis-ik，这个是 es 的一个第三方插件，代码托管在 [GitHub](https://github.com/medcl/elasticsearch-analysis-ik)
+
+```bash
+./bin/elasticsearch-plugin install https://github.com/medcl/elasticsearch-analysis-ik/releases/download/v7.8.0/elasticsearch-analysis-ik-7.8.0.zip
+```
+
+## 文档增删改
+
+### 新增
+```ruby
+#POST /<index>/_doc/
+POST twitter/_doc
+{
+  "user": "LY",
+  "uid": 1,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+# 返回
+{
+  "_index" : "twitter", #索引
+  "_type" : "_doc", #表示文档的类型
+  "_id" : "qZFuroEBXgf93p_7oiie", #表示文档的 id
+  "_version" : 1, #表示文档的版本（更新文档，版本会自动加 1，针对一个文档的）
+  "result" : "created", #表示执行结果
+  "_shards" : { # 表示分片信息
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 0, # 版本控制用的（针对当前 index）
+  "_primary_term" : 1 # 版本控制用的（针对当前 index）
+}
+#POST /<index>/_create/<_id>
+POST twitter/_create/2
+{
+  "user": "LY2",
+  "uid": 2,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+#PUT /<index>/_create/<_id>
+PUT twitter/_create/3
+{
+  "user": "LY3",
+  "uid": 3,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+#PUT /<index>/_doc/<_id>
+PUT twitter/_doc/4
+{
+  "user": "LY4",
+  "uid": 4,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+
+POST twitter/_doc/5
+{
+  "user": "LY5",
+  "uid": 5,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+```
+![image](https://user-images.githubusercontent.com/26034217/176152454-362ffba3-1e61-4fa9-afba-0481923e4dce.png)
+#### 批量新增
+```ruby
+POST _bulk
+{ "index" : { "_index" : "twitter", "_id": 1} }
+{"user":"双榆树-张三","message":"今儿天气不错啊，出去转转去","uid":2,"age":20,"city":"北京","province":"北京","country":"中国","address":"中国北京市海淀区","location":{"lat":"39.970718","lon":"116.325747"}}
+{ "index" : { "_index" : "twitter", "_id": 2 }}
+{"user":"东城区-老刘","message":"出发，下一站云南！","uid":3,"age":30,"city":"北京","province":"北京","country":"中国","address":"中国北京市东城区台基厂三条3号","location":{"lat":"39.904313","lon":"116.412754"}}
+{ "index" : { "_index" : "twitter", "_id": 3} }
+{"user":"东城区-李四","message":"happy birthday!","uid":4,"age":30,"city":"北京","province":"北京","country":"中国","address":"中国北京市东城区","location":{"lat":"39.893801","lon":"116.408986"}}
+{ "index" : { "_index" : "twitter", "_id": 4} }
+{"user":"朝阳区-老贾","message":"123,gogogo","uid":5,"age":35,"city":"北京","province":"北京","country":"中国","address":"中国北京市朝阳区建国门","location":{"lat":"39.718256","lon":"116.367910"}}
+{ "index" : { "_index" : "twitter", "_id": 5} }
+{"user":"朝阳区-老王","message":"Happy BirthDay My Friend!","uid":6,"age":50,"city":"北京","province":"北京","country":"中国","address":"中国北京市朝阳区国贸","location":{"lat":"39.918256","lon":"116.467910"}}
+{ "index" : { "_index" : "twitter", "_id": 6} }
+{"user":"虹桥-老吴","message":"好友来了都今天我生日，好友来了,什么 birthday happy 就成!","uid":7,"age":90,"city":"上海","province":"上海","country":"中国","address":"中国上海市闵行区","location":{"lat":"31.175927","lon":"121.383328"}}
+```
+
+通常对一个通过上面方法写入到 Elasticsearch 的文档，在默认的情况下并不马上可以进行搜索。这是因为在 Elasticsearch 的设计中，有一个叫做 refresh 的操作。它可以使更改可见以进行搜索的操作。通常会有一个 refresh timer 来定时完成这个操作。这个周期为1秒。这也是我们通常所说的 Elasticsearch 可以实现秒级的搜索。当然这个 timer 的周期也可以在索引的[设置](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-update-settings.html#reset-index-setting) 中进行配置。如果我们想让我们的结果马上可以对搜索可见，我们可以用如下的方法
+
+```ruby
+PUT twitter/_doc/1?refresh=true
+{
+  "user": "LY",
+  "uid": 1,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+```
+
+上面的方式可以强制使 Elasticsearch 进行 refresh 的操作，当然这个是有代价的。频繁的进行这种操作，可以使我们的 Elasticsearch 变得非常慢。另外一种方式是通过设置 refresh=wait_for。这样相当于一个同步的操作，它等待下一个 refresh 周期发生完后，才返回。这样可以确保我们在调用上面的接口后，马上可以搜索到我们刚才录入的文档：
+
+```ruby
+PUT twitter/_doc/1?refresh=wait_for
+{
+  "user": "LY",
+  "uid": 1,
+  "city": "Beijing",
+  "province": "Beijing",
+  "country": "China"
+}
+```
+
+
+
+###  修改
+**注意，文档更新一次，version 就会自增 1。**
+直接更新整个文档，这种方式会覆盖原有文档
+```ruby
+PUT twitter/_doc/qZFuroEBXgf93p_7oiie
+{
+  "user": "liuyang"
+}
+```
+
+大多数时候，我们只是想更新文档字段，这个可以通过脚本来实现。更新的请求格式：POST {index}/_update/{id}
+```ruby
+POST twitter/_update/qZFuroEBXgf93p_7oiie
+{
+  "script": {
+    "lang": "painless",
+    "source":"ctx._source.user=params.user",
+    "params": {
+      "user":"LY"
+    }
+  }
+}
+```
+
+
+在脚本中，lang 表示脚本语言，painless 是 es 内置的一种脚本语言。source 表示具体执行的脚本，ctx 是一个上下文对象，通过 ctx 可以访问到 _source、_title 等。
+也可以向文档中添加字段：
+```ruby
+POST twitter/_update/qZFuroEBXgf93p_7oiie
+{
+  "script": {
+    "lang": "painless",
+    "source":"ctx._source.langs=[\"ruby\",\"golang\"]"
+  }
+}
+```
+数组中添加一个
+```ruby
+POST twitter/_update/qZFuroEBXgf93p_7oiie
+{
+  "script":{
+    "lang": "painless",
+    "source":"ctx._source.langs.add(\"js\")"
+  }
+}
+```
+#### 查询更新
+```ruby
+POST twitter/_update_by_query
+{
+  "script": {
+    "source": "ctx._source.user=\"liuyang\"",
+    "lang": "painless"
+  },
+  "query": {
+    "term": {
+      "user.keyword":"LY"
+    }
+  }
+}
+```
+
+#### 批量更新
+```ruby
+POST _bulk
+{ "update" : { "_index" : "twitter", "_id": "qZFuroEBXgf93p_7oiie"} }
+{"doc": {"user":"双榆树-张三","message":"今儿天气不错啊，出去转转去","uid":2,"age":20,"city":"北京","province":"北京","country":"中国","address":"中国北京市海淀区","location":{"lat":"39.970718","lon":"116.325747"}}}
+```
+
+### 删除
+#### 根据id删除
+```ruby
+DELETE twitter/_doc/1
+```
+如果在添加文档时指定了路由，则删除文档时也需要指定路由，否则删除失败。
+
+
+#### 查询删除
+```ruby
+POST twitter/_delete_by_query
+{
+  "query":{
+    "term":{
+      "user.keyword":"双榆树-张三"
+    }
+  }
+}
+
+GET  twitter/_doc/qZFuroEBXgf93p_7oiie
+{
+  "_index" : "twitter",
+  "_type" : "_doc",
+  "_id" : "qZFuroEBXgf93p_7oiie",
+  "_version" : 2,
+  "_seq_no" : 1,
+  "_primary_term" : 1,
+  "found" : true,
+  "_source" : {
+    "user" : "liuyang"
+  }
+}
+```
+
+#### [批量删除](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/docs-bulk.html)
+```ruby
+POST _bulk
+{ "delete" : { "_index" : "twitter", "_id": 1} }
+{ "delete" : { "_index" : "twitter", "_id": 2 }}
+```
+
+## 查询
+### 搜索分为两个过程：
+
+- 当向索引中保存文档时，默认情况下，es 会保存两份内容，一份是 _source  中的数据，另一份则是通过分词、排序等一系列过程生成的倒排索引文件，倒排索引中保存了词项和文档之间的对应关系。
+- 搜索时，当 es 接收到用户的搜索请求之后，就会去倒排索引中查询，通过的倒排索引中维护的倒排记录表找到关键词对应的文档集合，然后对文档进行评分、排序、高亮等处理，处理完成后返回文档。
+
+### 一些简单的查询
+
+#### 查询文档
+```ruby
+GET books/_search
+{
+  "query": {
+    "match_all": {}
+  }
+}
+```
+简写为
+```ruby
+GET books/_search
+```
+#### [词项查询(term query)](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-term-query.html)
+```ruby
+GET books/_search
+{
+  "query": {
+    "term": {
+      "name": "十一五"
+    }
+  }
+}
+```
+
+#### 分页
+```ruby
+GET books/_search
+{
+  "query": {
+    "term": {
+      "name": "十一五"
+    }
+  },
+  "size": 10,
+  "from": 10
+}
+```
+
+#### 过滤字段,select
+```ruby
+GET books/_search
+{
+  "query": {
+    "term": {
+      "name": "十一五"
+    }
+  },
+  "size": 10,
+  "from": 10,
+  "_source": ["name","author"]
+}
+```
+#### 高亮
+```ruby
+GET books/_search
+{
+  "query": {
+    "term": {
+      "name": "十一五"
+    }
+  },
+  "min_score":1.75,
+  "_source": ["name","author"],
+  "highlight": {
+    "fields": {
+      "name": {}
+    }
+  }
+}
+```
+
+### 此项相关的查询
+
+#### [terms query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-terms-query.html)
+```ruby
+GET books/_search
+{
+  "query": {
+    "terms": {
+      "name": ["程序","设计","java"]
+    }
+  }
+}
+```
+
+#### [range query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-range-query.html)
+范围查询，可以按照日期范围、数字范围等查询。
+
+range query 中的参数主要有四个：
+
+- gt
+- lt
+- gte
+- lte
+```ruby
+GET books/_search
+{
+  "query": {
+    "range": {
+      "price": {
+        "gte": 10,
+        "lt": 20
+      }
+    }
+  },
+  "sort": [
+    {
+      "price": {
+        "order": "desc"
+      }
+    }
+  ]
+}
+```
+
+#### [exists query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-exists-query.html)
+**注意，空字符串也是有值。null 是空值。**
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "exists": {
+      "field": "price"
+    }
+  }
+}
+```
+#### [prefix query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-prefix-query.html)
+```ruby
+GET books/_search
+{
+  "query": {
+    "prefix": {
+      "name": {
+        "value": "大学"
+      }
+    }
+  }
+}
+```
+#### [wildcard query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-wildcard-query.html)
+wildcard query 即通配符查询。支持单字符和多字符通配符：
+
+- ？表示一个任意字符。
+- * 表示零个或者多个字符。
+```ruby
+GET books/_search
+{
+  "query": {
+    "wildcard": {
+      "author": {
+        "value": "张*"
+      }
+    }
+  }
+}
+```
+
+#### [regexp query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-regexp-query.html)
+支持正则表达式查询。
+
+查询所有姓张并且名字只有两个字的作者的书：
+```ruby
+GET books/_search
+{
+  "query": {
+    "regexp": {
+      "author": "张."
+    }
+  }
+}
+```
+
+#### [fuzzy query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-fuzzy-query.html)
+在实际搜索中，有时我们可能会打错字，从而导致搜索不到，在 match query 中，可以通过 fuzziness 属性实现模糊查询。
+
+fuzzy query 返回与搜索关键字相似的文档。怎么样就算相似？以LevenShtein 编辑距离为准。编辑距离是指将一个字符变为另一个字符所需要更改字符的次数，更改主要包括四种：
+
+更改字符（rubz--〉ruby）
+删除字符（ruuby--〉ruby）
+插入字符（ruu--〉ruby）
+转置字符（urby--〉ruby）
+为了找到相似的词，模糊查询会在指定的编辑距离中创建搜索关键词的所有可能变化或者扩展的集合，然后进行搜索匹配。
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "fuzzy": {
+      "name": "rubya"
+    }
+  }
+}
+```
+#### [ids query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-ids-query.html)
+根据指定的 id 查询。
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "ids":{
+      "values":  [1,2,3]
+    }
+  }
+}
+```
+
+### 复合查询
+#### constant_score query
+当我们不关心检索词项的频率（TF）对搜索结果排序的影响时，可以使用 constant_score 将查询语句或者过滤语句包裹起来。
+```ruby
+GET books/_search
+{
+  "query": {
+    "constant_score": {
+      "filter": {
+        "term": {
+          "name": "ruby"
+        }
+      },
+      "boost": 1.5
+    }
+  }
+}
+```
+
+#### bool query
+bool query 可以将任意多个简单查询组装在一起，有四个关键字可供选择，四个关键字所描述的条件可以有一个或者多个。
+
+must：文档必须匹配 must 选项下的查询条件。
+should：文档可以匹配 should 下的查询条件，也可以不匹配。
+must_not：文档必须不满足 must_not 选项下的查询条件。
+filter：类似于 must，但是 filter 不评分，只是过滤数据。
+例如查询 name 属性中必须包含 ruby [0,35] 区间内，info 属性可以包含 程序设计 也可以不包含程序设计：
+```ruby
+GET books/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "name": {
+              "value": "ruby"
+            }
+          }
+        }
+      ],
+      "must_not": [
+        {
+          "range": {
+            "price": {
+              "gte": 0,
+              "lte": 35
+            }
+          }
+        }
+      ],
+      "should": [
+        {
+          "match": {
+            "info": "程序设计"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+这里还涉及到一个关键字，**minmum_should_match** 参数。
+
+**minmum_should_match** 参数在 es 官网上称作最小匹配度。 **multi_match** 或者 **should** 查询中，都可以设置 **minmum_should_match** 参数。
+
+假设我们要做一次查询，查询 name 中包含 语言程序设计 关键字的文档:
+```ruby
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": "语言程序设计"
+    }
+  }
+}
+```
+在这个查询过程中，首先会进行分词，分词结果如下：
+```ruby
+GET /_analyze
+{
+  "tokenizer" : "ik_max_word",
+  "text" : "语言程序设计"
+}
+```
+
+```ruby
+{
+  "tokens" : [
+    {
+      "token" : "语言",
+      "start_offset" : 0,
+      "end_offset" : 2,
+      "type" : "CN_WORD",
+      "position" : 0
+    },
+    {
+      "token" : "程序设计",
+      "start_offset" : 2,
+      "end_offset" : 6,
+      "type" : "CN_WORD",
+      "position" : 1
+    },
+    {
+      "token" : "程序",
+      "start_offset" : 2,
+      "end_offset" : 4,
+      "type" : "CN_WORD",
+      "position" : 2
+    },
+    {
+      "token" : "设计",
+      "start_offset" : 4,
+      "end_offset" : 6,
+      "type" : "CN_WORD",
+      "position" : 3
+    }
+  ]
+}
+```
+
+分词后的 term 会构造成一个 should 的 bool query，每一个 term 都会变成一个 term query 的子句。换句话说，上面的查询和下面的查询等价
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "term": {
+            "name": {
+              "value": "语言"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "程序设计"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "程序"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "设计"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+在这两个查询语句中，都是文档只需要包含词项中的任意一项即可，文档就回被返回，在 match 查询中，可以通过 operator 参数设置文档必须匹配所有词项。
+
+如果想匹配一部分词项，就涉及到一个参数，就是 minmum_should_match，即最小匹配度。即至少匹配多少个词。
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": {
+        "query": "语言程序设计",
+        "operator": "and"
+      }
+    }
+  }
+}
+
+GET books/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "term": {
+            "name": {
+              "value": "语言"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "程序设计"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "程序"
+            }
+          }
+        },
+        {
+          "term": {
+            "name": {
+              "value": "设计"
+            }
+          }
+        }
+      ],
+      "minimum_should_match": "50%"
+    }
+  },
+  "from": 0,
+  "size": 70
+}
+```
+
+50% 表示词项个数的 50%。
+
+如下两个查询等价（参数 4 是因为查询关键字分词后有 4 项）：
+
+```ruby
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": {
+        "query": "语言程序设计",
+        "minimum_should_match": 4
+      }
+    }
+  }
+}
+GET books/_search
+{
+  "query": {
+    "match": {
+      "name": {
+        "query": "语言程序设计",
+        "operator": "and"
+      }
+    }
+  }
+}
+```
+
+#### [dis_max query](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/query-dsl-dis-max-query.html)
+
+假设现在有两本书
+```ruby
+PUT blog
+{
+  "mappings": {
+    "properties": {
+      "title":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "content":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      }
+    }
+  }
+}
+
+POST blog/_doc
+{
+  "title":"如何通过Ruby代码调用ElasticSearch",
+  "content":"xx力荐，这是一篇很好的解决方案"
+}
+
+POST blog/_doc
+{
+  "title":"初识 MongoDB",
+  "content":"简单介绍一下 MongoDB，以及如何通过 ruby 调用 MongoDB，MongoDB 是一个不错 NoSQL 解决方案"
+}
+```
+
+现在假设搜索 **Ruby解决方案** 关键字，但是不确定关键字是在 title 还是在 content，所以两者都搜索：
+```ruby
+GET blog/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "match": {
+            "title": "ruby解决方案"
+          }
+        },
+        {
+          "match": {
+            "content": "ruby解决方案"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+返回
+```ruby
+{
+  "took" : 171,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 2,
+      "relation" : "eq"
+    },
+    "max_score" : 1.2087705,
+    "hits" : [
+      {
+        "_index" : "blog",
+        "_type" : "_doc",
+        "_id" : "bZFDyIEBXgf93p_7Uz1I",
+        "_score" : 1.2087705,
+        "_source" : {
+          "title" : "如何通过Ruby代码调用ElasticSearch",
+          "content" : "xx力荐，这是一篇很好的解决方案"
+        }
+      },
+      {
+        "_index" : "blog",
+        "_type" : "_doc",
+        "_id" : "b5FDyIEBXgf93p_7Xz3g",
+        "_score" : 1.0912986,
+        "_source" : {
+          "title" : "初识 MongoDB",
+          "content" : "简单介绍一下 MongoDB，以及如何通过 ruby 调用 MongoDB，MongoDB 是一个不错 NoSQL 解决方案"
+        }
+      }
+    ]
+  }
+}
+```
+肉眼观察，感觉第二个和查询关键字相似度更高，但是实际查询结果并非这样。
+
+要理解这个原因，我们需要来看下 should query 中的评分策略：
+
+- 首先会执行 should 中的两个查询
+- 对两个查询结果的评分求和
+- 对求和结果乘以匹配语句总数
+- 在对第三步的结果除以所有语句总数
+
+反映到具体的查询中：
+
+**前者**
+
+title 中 包含 ruby，假设评分是 1.1
+content 中包含解决方案，假设评分是 1.2
+有得分的 query 数量，这里是 2
+总的 query 数量也是 2
+最终结果：（1.1+1.2）*2/2=2.3
+
+**后者**
+
+title 中 不包含查询关键字，没有得分
+content 中包含**解决方案**和 **ruby**，假设评分是 2
+有得分的 query 数量，这里是 1
+总的 query 数量也是 2
+最终结果：2*1/2=1
+
+在这种查询中，title 和 content 相当于是相互竞争的关系，所以我们需要找到一个最佳匹配字段。
+
+为了解决这一问题，就需要用到 dis_max query（disjunction max query，分离最大化查询）：匹配的文档依然返回，但是只将最佳匹配的评分作为查询的评分。
+
+```ruby
+GET blog/_search
+{
+  "query": {
+    "dis_max": {
+      "queries": [
+        {
+          "match": {
+            "title": "ruby解决方案"
+          }
+        },
+        {
+          "match": {
+            "content": "ruby解决方案"
+          }
+        }
+        ]
+    }
+  }
+}
+```
+```ruby
+{
+  "took" : 72,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 2,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0912986,
+    "hits" : [
+      {
+        "_index" : "blog",
+        "_type" : "_doc",
+        "_id" : "b5FDyIEBXgf93p_7Xz3g",
+        "_score" : 1.0912986,
+        "_source" : {
+          "title" : "初识 MongoDB",
+          "content" : "简单介绍一下 MongoDB，以及如何通过 ruby 调用 MongoDB，MongoDB 是一个不错 NoSQL 解决方案"
+        }
+      },
+      {
+        "_index" : "blog",
+        "_type" : "_doc",
+        "_id" : "bZFDyIEBXgf93p_7Uz1I",
+        "_score" : 0.6333276,
+        "_source" : {
+          "title" : "如何通过Ruby代码调用ElasticSearch",
+          "content" : "xx力荐，这是一篇很好的解决方案"
+        }
+      }
+    ]
+  }
+}
+```
+
+在 dis_max query 中，还有一个参数 tie_breaker（取值在0～1），在 dis_max query 中，是完全不考虑其他 query 的分数，只是将最佳匹配的字段的评分返回。但是，有的时候，我们又不得不考虑一下其他 query 的分数，此时，可以通过 tie_breaker 来优化 dis_max query。tie_breaker 会将其他 query 的分数，乘以 tie_breaker，然后和分数最高的 query 进行一个综合计算。
+
+### 多表联合查询
+关系型数据库中有表的关联关系，在 es 中，我们也有类似的需求，例如订单表和商品表，在 es 中，这样的一对多一般来说有两种方式：
+
+- 嵌套文档（nested）
+- 父子文档
+
+
+#### 嵌套文档
+
+假设：有一个电影文档，每个电影都有演员信息：
+```ruby
+PUT movies
+{
+  "mappings": {
+    "properties": {
+      "actors":{
+        "type": "nested"
+      }
+    }
+  }
+}
+
+PUT movies/_doc/1
+{
+  "name":"霸王别姬",
+  "actors":[
+    {
+      "name":"张国荣",
+      "gender":"男"
+    },
+    {
+      "name":"巩俐",
+      "gender":"女"
+    }
+    ]
+}
+```
+**注意 actors 类型要是 nested**
+
+##### 对象类型（object）
+由于 JSON 本身具有层级关系，所以文档包含内部对象。内部对象中，还可以再包含内部对象。
+
+```ruby
+PUT product/_doc/2
+{
+  "date":"2020-11-11T11:11:11Z",
+  "ext_info":{
+    "address":"China"
+  }
+}
+```
+##### 嵌套类型（nested）
+nested 是 object 中的一个特例。
+如果使用 object 类型，假如有如下一个文档：
+
+```ruby
+{
+  "user":[
+    {
+      "first":"Zhang",
+      "last":"san"
+    },
+    {
+      "first":"Li",
+      "last":"si"
+    }
+    ]
+}
+```
+由于 Lucene 没有内部对象的概念，所以 es 会将对象层次扁平化，将一个对象转为字段名和值构成的简单列表。即上面的文档，最终存储形式如下
+
+```ruby
+{
+"user.first":["Zhang","Li"],
+"user.last":["san","si"]
+}
+```
+扁平化之后，用户名之间的关系没了。这样会导致如果搜索 Zhang si 这个人，会搜索到。
+
+此时可以 nested 类型来解决问题，nested 对象类型可以保持数组中每个对象的独立性。nested 类型将数组中的每一饿对象作为独立隐藏文档来索引，这样每一个嵌套对象都可以独立被索引。
+```ruby
+{
+{
+"user.first":"Zhang",
+"user.last":"san"
+},{
+"user.first":"Li",
+"user.last":"si"
+}
+}
+```
+##### 优点
+
+文档存储在一起，读取性能高。
+
+##### 缺点
+
+更新父或者子文档时需要更新更个文档
+查看文档数量
+```ruby
+GET _cat/indices?v
+```
+结果如下
+```bash
+health status index  uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+green  open   movies qrXx51YGQxW_77vtNWvsBw   1   1          3            0     10.1kb            5kb
+```
+
+这是因为 nested 文档在 es 内部其实也是独立的 lucene 文档，只是在我们查询的时候，es 内部帮我们做了 join 处理，所以最终看起来就像一个独立文档一样。因此这种方案性能并不是特别好。
+
+##### 嵌套查询
+
+```ruby
+GET movies/_search
+{
+  "query": {
+    "nested": {
+      "path": "actors",
+      "query": {
+        "bool": {
+          "must": [
+            {
+              "match": {
+                "actors.name": "张国荣"
+              }
+            },
+            {
+              "match": {
+                "actors.gender": "男"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+#### 父子文档
+相比于嵌套文档，父子文档主要有如下优势：
+
+- 更新父文档时，不会重新索引子文档
+- 创建、修改或者删除子文档时，不会影响父文档或者其他的子文档。
+- 子文档可以作为搜索结果独立返回。
+例如学生和班级的关系
+
+```ruby
+PUT stu_class
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type": "keyword"
+      },
+      "s_c":{
+        "type": "join",
+        "relations":{
+          "class":"student"
+        }
+      }
+    }
+  }
+}
+```
+**s_c** 表示父子文档关系的名字，可以自定义。join 表示这是一个父子文档。relations 里边，class 这个位置是 parent，student 这个位置是 child。
+
+接下来，插入两个父文档：
+
+```ruby
+PUT stu_class/_doc/1
+{
+  "name":"一班",
+  "s_c":{
+    "name":"class"
+  }
+}
+PUT stu_class/_doc/2
+{
+  "name":"二班",
+  "s_c":{
+    "name":"class"
+  }
+}
+```
+再来添加三个子文档：
+```ruby
+PUT stu_class/_doc/3?routing=1
+{
+  "name":"zhangsan",
+  "s_c":{
+    "name":"student",
+    "parent":1
+  }
+}
+PUT stu_class/_doc/4?routing=1
+{
+  "name":"lisi",
+  "s_c":{
+    "name":"student",
+    "parent":1
+  }
+}
+PUT stu_class/_doc/5?routing=2
+{
+  "name":"wangwu",
+  "s_c":{
+    "name":"student",
+    "parent":2
+  }
+}
+```
+首先大家可以看到，子文档都是独立的文档。特别需要注意的地方是，子文档需要和父文档在同一个分片上，所以 routing 关键字的值为父文档的 id。另外，name 属性表明这是一个子文档。
+
+父子文档需要注意的地方：
+
+- 每个索引只能定义一个 join filed
+- 父子文档需要在同一个分片上（查询，修改需要routing）
+- 可以向一个已经存在的 join filed 上新增关系
+
+##### has_child query
+通过子文档查询父文档使用 has_child query。
+查询 wangwu 所属的班级。
+
+```ruby
+GET stu_class/_search
+{
+  "query": {
+    "has_child": {
+      "type": "student",
+      "query": {
+        "match": {
+          "name": "wangwu"
+        }
+      }
+    }
+  }
+}
+```
+
+##### has_parent query
+通过父文档查询子文档,查询二班的学生。但是大家注意，这种查询没有评分。
+```ruby
+GET stu_class/_search
+{
+  "query": {
+    "has_parent": {
+      "parent_type": "class",
+      "query": {
+        "match": {
+          "name": "二班"
+        }
+      }
+    }
+  }
+}
+```
+可以使用 parent id 查询子文档：
+```ruby
+GET stu_class/_search
+{
+  "query": {
+    "parent_id":{
+      "type":"student",
+      "id":1
+    }
+  }
+}
+```
+通过 parent id 查询，默认情况下使用相关性计算分数。
+
+#### 小结
+整体上来说：
+
+- 普通子对象实现一对多，会损失子文档的边界，子对象之间的属性关系丢失。
+- nested 可以解决第 1 点的问题，但是 nested 有两个缺点：更新主文档的时候要全部更新，不支持子文档属于多个主文档。
+- 父子文档解决 1、2 点的问题，但是它主要适用于写多读少的场景。
+
+### 高亮
+普通高亮，默认会自动添加 em 标签：
+```ruby
+GET blog/_search
+{
+  "query": {
+    "match": {
+      "title": "ruby"
+    }
+  },
+  "highlight": {
+    "fields": {
+      "title": {}
+    }
+  }
+}
+```
+
+```ruby
+{
+  "took" : 297,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.5754429,
+    "hits" : [
+      {
+        "_index" : "blog",
+        "_type" : "_doc",
+        "_id" : "bZFDyIEBXgf93p_7Uz1I",
+        "_score" : 0.5754429,
+        "_source" : {
+          "title" : "如何通过Ruby代码调用ElasticSearch",
+          "content" : "xx力荐，这是一篇很好的解决方案"
+        },
+        "highlight" : {
+          "title" : [
+            "如何通过<em>Ruby</em>代码调用ElasticSearch"
+          ]
+        }
+      }
+    ]
+  }
+}
+
+```
+添加标签
+```ruby
+GET blog/_search
+{
+  "query": {
+    "match": {
+      "title": "ruby"
+    }
+  },
+  "highlight": {
+    "fields": {
+      "title": {
+        "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      }
+    }
+  }
+}
+```
+多个字段
+```ruby
+GET blog/_search
+{
+  "query": {
+  "bool": {
+    "should": [
+      {
+        "match": {
+          "title": "ruby"
+        }
+      },{
+        "match": {
+          "content": "ruby"
+        }
+      }
+    ]
+  }
+  },
+  "highlight": {
+    "fields": {
+      "title": {
+        "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      },
+      "content": {
+                "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      }
+    }
+  }
+}
+```
+### 权重
+boost 参数可以设置字段的权重。
+
+boost 有两种使用思路，一种就是在定义 mappings 的时候使用，在指定字段类型时使用；另一种就是在查询时使用。
+
+实际开发中建议使用后者，前者有问题：如果不重新索引文档，权重无法修改。
+
+mapping 中使用 boost（不推荐）
+```ruby
+GET blog/_search
+{
+  "query": {
+  "bool": {
+    "should": [
+      {
+        "match": {
+          "title": {
+            "query": "ruby",
+            "boost": 2
+          }
+        }
+      },{
+        "match": {
+          "content": "ruby"
+        }
+      }
+    ]
+  }
+  },
+  "highlight": {
+    "fields": {
+      "title": {
+        "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      },
+      "content": {
+        "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      }
+    }
+  }
+}
+```
+
+```ruby
+GET blog/_search
+{
+  "query": {
+    "dis_max": {
+      "tie_breaker": 0.7,
+      "boost": 1.2,
+      "queries": [
+        {
+          "match": {
+            "title": {
+              "query": "ruby",
+              "boost": 2
+            }
+          }
+        },
+        {
+          "match": {
+            "content": {
+              "query": "ruby",
+              "boost": 1
+            }
+          }
+        }
+      ]
+    }
+  },
+    "highlight": {
+    "fields": {
+      "title": {
+        "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      },
+      "content": {
+                "pre_tags": ["<strong>"],
+        "post_tags": ["</strong>"]
+      }
+    }
+  }
+}
+```
+
+### 聚合
+Es 中的聚合分析我们主要从三个方面来学习：
+
+- 指标聚合
+- 桶聚合
+- 管道聚合
+
+#### [指标聚合](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/search-aggregations-metrics.html)
+
+##### Max Aggregation
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "max_price": {
+      "max": {
+        "field": "price"
+      }
+    }
+  }
+}
+```
+如果某个文档中缺少 price 字段，则设置该字段的值为 1000。
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "max_price": {
+      "max": {
+        "field": "price",
+        "missing": 1000
+      }
+    }
+  }
+}
+```
+使用脚本时，可以先通过 doc['price'].size()!=0 去判断文档是否有对应的属性。
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "max_price": {
+      "max": {
+        "script": {
+          "source": "if(doc['price'].size()!=0){doc.price.value}"
+        }
+      }
+    }
+  }
+}
+```
+##### Min Aggregation
+统计最小值，用法和 Max Aggregation 基本一致
+
+##### Avg Aggregation
+
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "avg_price": {
+      "avg": {
+        "field": "price"
+      }
+    }
+  }
+}
+
+GET books/_search
+{
+  "aggs": {
+    "avg_price": {
+      "avg": {
+        "script": {
+          "source": "if(doc['price'].size()!=0){doc.price.value}"
+        }
+      }
+    }
+  }
+}
+```
+
+##### Sum Aggregation
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "sum_price": {
+      "sum": {
+        "field": "price"
+      }
+    }
+  }
+}
+
+GET books/_search
+{
+  "aggs": {
+    "sum_price": {
+      "sum": {
+        "script": {
+          "source": "if(doc['price'].size()!=0){doc.price.value}"
+        }
+      }
+    }
+  }
+}
+```
+
+##### Cardinality Aggregation
+cardinality aggregation 用于基数统计。类似于 SQL 中的 distinct count(0)：
+
+text 类型是分析型类型，默认是不允许进行聚合操作的，如果相对 text 类型进行聚合操作，需要设置其 fielddata 属性为 true，这种方式虽然可以使 text 类型进行聚合操作，但是无法满足精准聚合，如果需要精准聚合，可以设置字段的子域为 keyword。
+
+```ruby
+PUT books
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "publish":{
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "fielddata": true
+      },
+      "type":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "author":{
+        "type": "keyword"
+      },
+      "info":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "price":{
+        "type": "double"
+      }
+    }
+  }
+}
+```
+
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "publish_count": {
+      "cardinality": {
+        "field": "publish"
+      }
+    }
+  }
+}
+```
+这种聚合方式可能会不准确。可以将 publish 设置为 keyword 类型或者设置子域为 keyword。
+
+```ruby
+PUT books
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "publish":{
+        "type": "keyword"
+      },
+      "type":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "author":{
+        "type": "keyword"
+      },
+      "info":{
+        "type": "text",
+        "analyzer": "ik_max_word"
+      },
+      "price":{
+        "type": "double"
+      }
+    }
+  }
+}
+```
+对比查询结果可知，使用 fileddata 的方式，查询结果不准确。
+
+##### Stats Aggregation
+基本统计，一次性返回 count、max、min、avg、sum：
+
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "stats_query": {
+      "stats": {
+        "field": "price"
+      }
+    }
+  }
+}
+```
+
+##### Extends Stats Aggregation
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "es": {
+      "extended_stats": {
+        "field": "price"
+      }
+    }
+  }
+}
+```
+
+##### Value Count Aggregation
+可以按照字段统计文档数量（包含指定字段的文档数量）：
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "count": {
+      "value_count": {
+        "field": "price"
+      }
+    }
+  }
+}
+```
+
+#### [桶聚合（bucket）](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/search-aggregations-bucket.html)
+##### Terms Aggregation
+
+Terms Aggregation 用于分组聚合，例如，统计各个出版社出版的图书总数量:
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "terms": {
+        "field": "publish",
+        "size": 20
+      }
+    }
+  }
+}
+```
+在 terms 分桶的基础上，还可以对每个桶进行指标聚合。
+
+统计不同出版社所出版的图书的平均价格：
+
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "terms": {
+        "field": "publish",
+        "size": 20
+      },
+      "aggs": {
+        "avg_price": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+##### Filter Aggregation
+过滤器聚合。可以将符合过滤器中条件的文档分到一个桶中，然后可以求其平均值。
+
+例如查询书名中包含 ruby 的图书的平均价格
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "filter": {
+        "term": {
+          "name": "ruby"
+        }
+      },
+      "aggs": {
+        "avg_price": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+##### Filters Aggregation
+多过滤器聚合。过滤条件可以有多个。
+
+例如查询书名中包含 ruby 或者 office 的图书的平均价格：
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "filters": {
+        "filters": [
+          {
+            "term":{
+              "name":"ruby"
+            }
+          },{
+            "term":{
+              "name":"office"
+            }
+          }
+          ]
+      },
+      "aggs": {
+        "avg_price": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    }
+  }
+}
+```
+##### Range Aggregation
+按照范围聚合，在某一个范围内的文档数统计。
+
+例如统计图书价格在 0-50、50-100、100-150、150以上的图书数量
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "range": {
+        "field": "price",
+        "ranges": [
+          {
+            "to": 50
+          },{
+            "from": 50,
+            "to": 100
+          },{
+            "from": 100,
+            "to": 150
+          },{
+            "from": 150
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+##### Date Range Aggregation
+Range Aggregation 也可以用来统计日期，但是也可以使用 Date Range Aggregation，后者的优势在于可以使用日期表达式。
+```ruby
+PUT blog/_doc/1
+{
+  "title":"ruby",
+  "date":"2018-12-30"
+}
+PUT blog/_doc/2
+{
+  "title":"ruby",
+  "date":"2020-12-30"
+}
+PUT blog/_doc/3
+{
+  "title":"ruby",
+  "date":"2022-10-30"
+}
+```
+- 12M/M 表示 12 个月。
+- 1y/y 表示 1年。
+- d 表示天
+```ruby
+GET blog/_search
+{
+  "aggs": {
+    "NAME": {
+      "date_range": {
+        "field": "date",
+        "ranges": [
+          {
+            "from": "now-12M/M",
+            "to": "now+1y/y"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+##### Date Histogram Aggregation
+时间直方图聚合。
+
+例如统计各个月份的博客数量
+```ruby
+GET blog/_search
+{
+  "aggs": {
+    "NAME": {
+      "date_histogram": {
+        "field": "date",
+        "calendar_interval": "month"
+      }
+    }
+  }
+}
+```
+
+##### Missing Aggregation
+空值聚合。
+
+统计所有没有 price 字段的文档：
+
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "NAME": {
+      "missing": {
+        "field": "price"
+      }
+    }
+  }
+}
+```
+
+##### Children Aggregation
+可以根据父子文档关系进行分桶。
+
+查询子类型为 student 的文档数量：
+```ruby
+GET stu_class/_search
+{
+  "aggs": {
+    "NAME": {
+      "children": {
+        "type": "student"
+      }
+    }
+  }
+}
+```
+
+#### [管道聚合](https://www.elastic.co/guide/en/elasticsearch/reference/7.8/search-aggregations-pipeline.html)
+管道聚合相当于在之前聚合的基础上，再次聚合。
+
+计算聚合平均值。例如，统计每个出版社所出版图书的平均值，然后再统计所有出版社的平均值：
+```ruby
+GET books/_search
+{
+  "aggs": {
+    "book_count": {
+      "terms": {
+        "field": "publish",
+        "size": 3
+      },
+      "aggs": {
+        "book_avg": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    },
+    "avg_book":{
+      "avg_bucket": {
+        "buckets_path": "book_count>book_avg"
+      }
+    }
+  }
+}
+```
