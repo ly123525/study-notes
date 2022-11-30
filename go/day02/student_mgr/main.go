@@ -53,18 +53,18 @@ func AddStudent() {
 func ModifyStudent() {
 	stu := inputStudent()
 	for index, v := range AllStudents {
-		if v.Username == stu.Username {
+		if v.UserName == stu.UserName {
 			AllStudents[index] = stu
-			fmt.Printf("user %s success update\n\n", stu.Username)
+			fmt.Printf("user %s success update\n\n", stu.UserName)
 			return
 		}
 	}
-	fmt.Printf("user %s is not found\n", stu.Username)
+	fmt.Printf("user %s is not found\n", stu.UserName)
 }
 
 func ShowAllStudent() {
 	for _, v := range AllStudents {
-		fmt.Printf("user:%s info:%#v\n", v.Username, v)
+		fmt.Printf("user:%s info:%#v\n", v.UserName, v)
 	}
 	fmt.Println()
 }
