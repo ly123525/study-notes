@@ -41,7 +41,7 @@ func AddStudent() {
 	stu := inputStudent()
 	for i, v := range AllStudents {
 		if v.UserName == stu.UserName {
-			fmt.Println("user %s success update", stu.UserName)
+			fmt.Printf("user %s success update \n", stu.UserName)
 			AllStudents[i] = stu
 			return
 		}
